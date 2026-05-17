@@ -30,8 +30,18 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS personel (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ad TEXT NOT NULL, soyad TEXT NOT NULL, tc TEXT UNIQUE NOT NULL,
+        telefon TEXT DEFAULT NULL, yonetici INTEGER DEFAULT 0,
         aktif INTEGER DEFAULT 1, olusturma_tarihi TEXT DEFAULT CURRENT_TIMESTAMP
     )''')
+    # Mevcut veritabanlarına sütun ekle (migration)
+    try:
+        c.execute('ALTER TABLE personel ADD COLUMN telefon TEXT DEFAULT NULL')
+    except Exception:
+        pass
+    try:
+        c.execute('ALTER TABLE personel ADD COLUMN yonetici INTEGER DEFAULT 0')
+    except Exception:
+        pass
     c.execute('''CREATE TABLE IF NOT EXISTS maas_gecmis (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         personel_id INTEGER NOT NULL, yil INTEGER NOT NULL, ay INTEGER,
@@ -278,8 +288,8 @@ def personel_ekle():
             conn.commit()
             conn.close()
             return jsonify({'ok': True, 'id': pasif_mevcut['id'], 'reaktif': True})
-        cur = conn.execute('INSERT INTO personel (ad, soyad, tc) VALUES (?,?,?)',
-                           (d['ad'], d['soyad'], d['tc']))
+        cur = conn.execute('INSERT INTO personel (ad, soyad, tc, telefon, yonetici) VALUES (?,?,?,?,?)',
+                           (d['ad'], d['soyad'], d['tc'], d.get('telefon') or None, 1 if d.get('yonetici') else 0))
         pid = cur.lastrowid
         log_yaz(conn, 'personel', pid, 'INSERT', yeni={'ad': d['ad'], 'soyad': d['soyad'], 'tc': d['tc']})
         conn.commit()
@@ -303,8 +313,8 @@ def personel_guncelle(pid):
         if cakisan:
             conn.close()
             return jsonify({'ok': False, 'hata': f"Bu TC zaten kayıtlı: {cakisan['ad']} {cakisan['soyad']}"}), 409
-        conn.execute('UPDATE personel SET ad=?, soyad=?, tc=? WHERE id=?',
-                     (d['ad'], d['soyad'], d['tc'], pid))
+        conn.execute('UPDATE personel SET ad=?, soyad=?, tc=?, telefon=?, yonetici=? WHERE id=?',
+                     (d['ad'], d['soyad'], d['tc'], d.get('telefon') or None, 1 if d.get('yonetici') else 0, pid))
         log_yaz(conn, 'personel', pid, 'UPDATE', eski=eski, yeni={'ad': d['ad'], 'soyad': d['soyad'], 'tc': d['tc']})
         if d.get('sabit_maas'):
             yil = d.get('yil', datetime.now().year)
@@ -1217,6 +1227,35 @@ def yedek_sil(dosya):
     os.remove(yol)
     return jsonify({'ok': True})
 
+@app.route('/api/yonetici', methods=['GET'])
+def yonetici_listesi():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM personel WHERE yonetici=1 AND aktif=1 ORDER BY ad').fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/whatsapp_link', methods=['POST'])
+def whatsapp_link():
+    """WhatsApp web linki oluştur (pywebview ile açılır)"""
+    d = request.json
+    telefon = d.get('telefon', '').strip()
+    mesaj = d.get('mesaj', '').strip()
+    if not telefon:
+        return jsonify({'ok': False, 'hata': 'Telefon numarası eksik'}), 400
+    # +90 ile başlıyorsa veya 0 ile başlıyorsa normalize et
+    if telefon.startswith('+'):
+        numara = telefon.replace('+', '').replace(' ', '').replace('-', '')
+    elif telefon.startswith('0'):
+        numara = '90' + telefon[1:].replace(' ', '').replace('-', '')
+    else:
+        numara = '90' + telefon.replace(' ', '').replace('-', '')
+    import urllib.parse
+    encoded_msg = urllib.parse.quote(mesaj)
+    link = f"https://wa.me/{numara}?text={encoded_msg}"
+    return jsonify({'ok': True, 'link': link, 'numara': numara})
+
+
 if __name__ == '__main__':
     # ── TEK ÖRNEK KONTROLÜ (Windows Mutex) ──────────────────
     import ctypes
@@ -1261,6 +1300,15 @@ if __name__ == '__main__':
                     file_types=('Excel Dosyası (*.xlsx)',)
                 )
                 return result if result else None
+
+            def whatsapp_ac(self, url):
+                import subprocess
+                try:
+                    subprocess.Popen(['cmd', '/c', 'start', '', url],
+                                     shell=False, creationflags=0x08000000)
+                    return True
+                except Exception:
+                    return False
 
         api_obj = PuantajAPI()
         window = webview.create_window(

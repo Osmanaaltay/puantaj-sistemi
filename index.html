@@ -532,6 +532,8 @@ input[type=number]{-moz-appearance:textfield}
     <div style="display:flex;gap:8px">
       <button class="btn btn-ghost btn-sm" onclick="loadRapor()">↺ Yenile</button>
       <button class="btn btn-green btn-sm" onclick="xlsxIndir()">⬇ XLSX İndir</button>
+      <button class="btn btn-ghost btn-sm" style="background:rgba(37,211,102,.12);color:#25d366;border-color:rgba(37,211,102,.3)" onclick="raporWhatsappYonetici()">📲 Yöneticiye Gönder</button>
+      <button class="btn btn-ghost btn-sm" style="background:rgba(37,211,102,.12);color:#25d366;border-color:rgba(37,211,102,.3)" onclick="raporWhatsappPersoneller()">📨 Personellere Gönder</button>
     </div>
   </div>
   <div class="content">
@@ -610,7 +612,25 @@ input[type=number]{-moz-appearance:textfield}
         oninput="this.value=this.value.replace(/\D/g,'');pTcDegisti()">
     </div>
     <div id="p-tc-msg" style="font-size:11px;margin-bottom:12px;min-height:16px"></div>
-    <div class="modal-footer">
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Telefon <span style="font-size:10px;color:var(--text3)">(+90 ile)</span></label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="background:var(--surface2);border:1px solid var(--border);border-right:none;
+          border-radius:7px 0 0 7px;padding:9px 10px;font-size:13px;color:var(--text2);
+          white-space:nowrap;line-height:1">+90</span>
+        <input id="p-telefon" placeholder="5XX XXX XX XX" maxlength="13"
+          style="border-radius:0 7px 7px 0;flex:1"
+          oninput="this.value=this.value.replace(/[^0-9 \-]/g,'')">
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;
+      background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px">
+      <input type="checkbox" id="p-yonetici" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
+      <div>
+        <label for="p-yonetici" style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text)">Yönetici</label>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">Aylık rapor bu kişinin numarasına gönderilir</div>
+      </div>
+    </div>
       <button class="btn btn-ghost" onclick="modalKapat('modal-personel')">İptal</button>
       <button class="btn btn-primary" id="p-kaydet-btn" onclick="personelKaydet()">Kaydet</button>
     </div>
@@ -979,12 +999,13 @@ function renderPersonelListe() {
   }
   el.innerHTML = header + `
     <table class="tbl"><thead><tr>
-      <th>#</th><th>Ad Soyad</th><th>TC Kimlik</th><th></th>
+      <th>#</th><th>Ad Soyad</th><th>TC Kimlik</th><th>Telefon</th><th></th>
     </tr></thead><tbody>
     ${personeller.map((p,i)=>`<tr>
       <td style="color:var(--text3);font-family:'DM Mono',monospace;font-size:11px">${i+1}</td>
-      <td><b>${p.ad} ${p.soyad}</b></td>
+      <td><b>${p.ad} ${p.soyad}</b>${p.yonetici?` <span style="font-size:10px;background:var(--accent-soft);color:var(--accent);border-radius:4px;padding:1px 6px;font-weight:700;vertical-align:middle">YÖNETİCİ</span>`:''}</td>
       <td style="font-family:'DM Mono',monospace;color:var(--text2);letter-spacing:1px">${p.tc}</td>
+      <td style="font-family:'DM Mono',monospace;color:var(--text2);font-size:12px">${p.telefon?`📱 ${p.telefon}`:'<span style="color:var(--text3)">—</span>'}</td>
       <td><div class="tbl-actions">
         <button class="btn btn-ghost btn-xs" data-pid="${p.id}" data-action="edit">✏️ Düzenle</button>
         <button class="btn btn-ghost btn-xs" data-pid="${p.id}" data-action="pasif" style="color:var(--yellow,#f59e0b)">⏸ Pasife Al</button>
@@ -1007,6 +1028,8 @@ function personelModalAc(p=null) {
   document.getElementById('p-ad').value = p?.ad || '';
   document.getElementById('p-soyad').value = p?.soyad || '';
   document.getElementById('p-tc').value = p?.tc || '';
+  document.getElementById('p-telefon').value = p?.telefon || '';
+  document.getElementById('p-yonetici').checked = p?.yonetici ? true : false;
   document.getElementById('p-uyari').style.display = 'none';
   document.getElementById('p-uyari').textContent = '';
   document.getElementById('p-tc-msg').textContent = '';
@@ -1042,7 +1065,12 @@ async function personelKaydet() {
   const ad    = document.getElementById('p-ad').value.trim();
   const soyad = document.getElementById('p-soyad').value.trim();
   const tc    = document.getElementById('p-tc').value.trim();
+  const telefonRaw = document.getElementById('p-telefon').value.trim();
+  const yonetici = document.getElementById('p-yonetici').checked;
   const uyariEl = document.getElementById('p-uyari');
+
+  // Telefon normalize: boşluk ve tire temizle
+  const telefon = telefonRaw ? ('+90' + telefonRaw.replace(/[\s\-]/g,'')) : null;
 
   // Validasyon
   if (!ad)   { toast('Ad zorunlu', false); document.getElementById('p-ad').focus(); return; }
@@ -1052,8 +1080,12 @@ async function personelKaydet() {
     toast('TC 11 rakam olmalı ve 0 ile başlayamaz', false);
     document.getElementById('p-tc').focus(); return;
   }
+  if (telefonRaw && !/^\d{10,11}$/.test(telefonRaw.replace(/[\s\-]/g,''))) {
+    toast('Telefon numarası geçersiz (10-11 rakam)', false);
+    document.getElementById('p-telefon').focus(); return;
+  }
 
-  const body = { ad, soyad, tc };
+  const body = { ad, soyad, tc, telefon, yonetici };
   let r;
   if (editPersonelId) {
     r = await api(`/personel/${editPersonelId}`, 'PUT', body);
@@ -1950,6 +1982,140 @@ async function loadDashboard() {
 }
 
 // ── AYLIK RAPOR ──────────────────────────────────────────
+// ── WHATSAPP RAPOR GÖNDERİMİ ─────────────────────────────
+async function raporWhatsappYonetici() {
+  const yoneticiler = personeller.filter(p => p.yonetici);
+  if (!yoneticiler.length) {
+    toast('⚠️ Yönetici olarak işaretli personel yok. Personel listesinden yönetici seçin.', false);
+    return;
+  }
+  const yon = yoneticiler[0];
+  if (!yon.telefon) {
+    toast(`⚠️ ${yon.ad} ${yon.soyad} için telefon numarası tanımlı değil.`, false);
+    return;
+  }
+
+  const yil = getYil(), ay = getAy(), ayAd = AY_AD[ay];
+  const tablo = await api(`/aylik_tablo?yil=${yil}&ay=${ay}`);
+  if (!tablo || !tablo.tablo || !tablo.tablo.length) { toast('Rapor verisi yok', false); return; }
+
+  const GUN_KISA = ['Pt','Sa','Ça','Pe','Cu','Ct','Pz'];
+
+  let mesaj = `*AYLIK PUANTAJ RAPORU - ${ayAd.toUpperCase()} ${yil}*\n\n`;
+
+  trSort(tablo.tablo).forEach(satir => {
+    const p = satir.personel, oz = satir.ozet;
+    mesaj += `*${p.ad} ${p.soyad}*\n`;
+
+    // Gün gün satır — sadece girilmiş günleri göster
+    satir.gunler.forEach(g => {
+      if (g.saat === null || g.saat === undefined) return;
+      const d = new Date(g.tarih);
+      const gunAd = GUN_KISA[d.getDay() === 0 ? 6 : d.getDay() - 1];
+      const gunNo = String(g.gun).padStart(2, ' ');
+      let etiket = '';
+      if (g.pazar) etiket = ' (Pazar)';
+      else if (g.tatil) etiket = ' (Tatil)';
+      else if (g.saat > 7.5) etiket = ' (FM)';
+      mesaj += `${gunNo} ${gunAd}${etiket}: ${g.saat}s\n`;
+    });
+
+    // Özet
+    if (oz) {
+      const toplamSaat = (oz.normal_saat + oz.yillik_izin_saat).toFixed(2);
+      mesaj += `-----------------\n`;
+      mesaj += `Toplam: *${toplamSaat}s*`;
+      if (oz.fazla_mesai_saat > 0) mesaj += `  Fazla Mesai: *${oz.fazla_mesai_saat.toFixed(2)}s*`;
+      mesaj += '\n';
+    }
+    mesaj += '\n';
+  });
+
+  mesaj += `_${new Date().toLocaleDateString('tr-TR')} tarihinde olusturulmustur._`;
+
+  const r = await api('/whatsapp_link', 'POST', { telefon: yon.telefon, mesaj });
+  if (!r.ok) { toast(r.hata || 'Link oluşturulamadı', false); return; }
+
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.whatsapp_ac) {
+    await window.pywebview.api.whatsapp_ac(r.link);
+    toast(`📲 WhatsApp açıldı — ${yon.ad} ${yon.soyad}`);
+  } else {
+    window.open(r.link, '_blank');
+    toast(`📲 WhatsApp Web açıldı — ${yon.ad} ${yon.soyad}`);
+  }
+}
+
+async function raporWhatsappPersoneller() {
+  const yil = getYil(), ay = getAy(), ayAd = AY_AD[ay];
+
+  const tablo = await api(`/aylik_tablo?yil=${yil}&ay=${ay}`);
+  if (!tablo || !tablo.tablo || !tablo.tablo.length) { toast('Rapor verisi yok', false); return; }
+
+  const GUN_KISA = ['Pt','Sa','Ça','Pe','Cu','Ct','Pz'];
+
+  // Telefonu olan personelleri filtrele
+  const hedefler = tablo.tablo.filter(satir => {
+    const p = personeller.find(x => x.id === satir.personel.id);
+    return p && p.telefon;
+  });
+
+  if (!hedefler.length) {
+    toast('⚠️ Telefonu tanımlı personel yok. Personel listesinden telefon ekleyin.', false);
+    return;
+  }
+
+  if (!confirm(`${hedefler.length} personele WhatsApp mesajı gönderilecek.\nHer biri için WhatsApp ayrı ayrı açılacak.\nDevam etmek istiyor musunuz?`)) return;
+
+  let gonK = 0;
+
+  for (const satir of hedefler) {
+    const p_full = personeller.find(x => x.id === satir.personel.id);
+    if (!p_full?.telefon) continue;
+
+    const oz = satir.ozet;
+    let mesaj = `*PUANTAJ - ${ayAd.toUpperCase()} ${yil}*\n`;
+    mesaj += `Sayin *${satir.personel.ad} ${satir.personel.soyad}*\n\n`;
+
+    // Gün gün — sadece girilmiş günler
+    satir.gunler.forEach(g => {
+      if (g.saat === null || g.saat === undefined) return;
+      const d = new Date(g.tarih);
+      const gunAd = GUN_KISA[d.getDay() === 0 ? 6 : d.getDay() - 1];
+      const gunNo = String(g.gun).padStart(2, ' ');
+      let etiket = '';
+      if (g.pazar) etiket = ' (Pazar)';
+      else if (g.tatil) etiket = ' (Tatil)';
+      else if (g.saat > 7.5) etiket = ' (FM)';
+      mesaj += `${gunNo} ${gunAd}${etiket}: ${g.saat}s\n`;
+    });
+
+    // Özet
+    if (oz) {
+      const toplamSaat = (oz.normal_saat + oz.yillik_izin_saat).toFixed(2);
+      mesaj += `-----------------\n`;
+      mesaj += `Toplam Calisma: *${toplamSaat} saat*\n`;
+      if (oz.fazla_mesai_saat > 0)
+        mesaj += `Fazla Mesai: *${oz.fazla_mesai_saat.toFixed(2)} saat*\n`;
+    }
+
+    mesaj += `\n_${new Date().toLocaleDateString('tr-TR')} tarihinde olusturulmustur._`;
+
+    const r = await api('/whatsapp_link', 'POST', { telefon: p_full.telefon, mesaj });
+    if (!r.ok) continue;
+
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.whatsapp_ac) {
+      await window.pywebview.api.whatsapp_ac(r.link);
+    } else {
+      window.open(r.link, '_blank');
+    }
+    gonK++;
+    await new Promise(res => setTimeout(res, 900));
+  }
+
+  toast(`✅ ${gonK} personele WhatsApp mesajı gönderildi`);
+}
+
+
 async function loadRapor() {
   document.getElementById('rapor-donem').textContent=donemStr();
   const data=await api(`/aylik_tablo?yil=${getYil()}&ay=${getAy()}`);
