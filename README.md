@@ -73,7 +73,7 @@ puantaj-sistemi/
 | Normal gün | Girilen saat normal; 7,5 saati aşan kısım fazla mesai |
 | Pazar günü | `0` girilirse → 7,5 saat normal; değer girilirse o kadar normal |
 | Tam tatil | Çalışılan saat → 7,5 normal + aşan kısım fazla mesai |
-| Yarım tatil | Çalışılan saat → 7,5 normal + 3,75 üstü fazla mesai |
+| Yarım tatil | Çalışılan saat → 7,5 normal + 4 üstü fazla mesai |
 | Yıllık izin | 7,5 saat normal sayılır |
 | Rapor / Ücretsiz izin | Hesaba dahil edilmez |
 
