@@ -178,22 +178,22 @@ input::placeholder{color:var(--text3)}
 .excel-grid td.col-summ{background:#e2e6f3;color:#4a5580;font-weight:700;
   font-size:11px;padding:2px 4px;min-width:56px;width:56px}
 .excel-grid td.col-summ.fazla{color:#b85c00}
-.excel-grid td.pazar-col{background:#fdecd8}
-.excel-grid td.tatil-col{background:#d8edf8}
+.excel-grid td.pazar-col{background:#f4c89a}
+.excel-grid td.tatil-col{background:#a6d9f5}
 .excel-grid th.pazar-hdr{color:#c06010}
 .excel-grid th.tatil-hdr{color:#1a7aaa}
 .hucre{
   width:100%;height:100%;
-  background:#f0f2f8;border:none;color:#9098b8;
+  background:#f8f9fc;border:none;color:#2d3352;
   text-align:center;font-family:'DM Mono',monospace;font-size:11px;
   padding:0 1px;box-sizing:border-box;
 }
 .hucre:focus{background:#dde3f8;outline:none;color:#2d3352}
-.hucre.saved-normal{color:#2d3352;background:#f8f9fc}
-.hucre.saved-pazar{color:#b85c00;background:#fdecd8}
-.hucre.saved-tatil-tam{color:#1a7aaa;background:#d8edf8}
-.hucre.saved-tatil-yarim{color:#1a8a45;background:#d8f0e4}
-.hucre.saved-fazla{color:#b85c00;background:#fdecd8}
+.hucre.saved-normal{color:#000}
+.hucre.saved-pazar{color:#000;background:#f4c89a}
+.hucre.saved-tatil-tam{color:#000;background:#a6d9f5}
+.hucre.saved-tatil-yarim{color:#000;background:#99dfc0}
+.hucre.saved-fazla{color:#000}
 .hucre.dirty{color:#c0392b;background:#fce8e8}
 .hucre.secili{background:#c8d4f8;outline:1px solid #6b8fff}
 .secim-input-wrap{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
@@ -461,7 +461,7 @@ input[type=number]{-moz-appearance:textfield}
           </div>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
             <div style="width:12px;height:12px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
-            <b>Yarım Gün (3.75s):</b> Girilen saat 7.5 olarak sayılır (3.75 normal + 3.75 fazla)
+            <b>Yarım Gün (4s):</b> 4 saate kadar tam gün (7.5s) sayılır, 4s üstü fazla mesai
           </div>
           <div style="color:var(--text3);font-size:12px">
             • Boş veya 0 → standart tatil saati verilir<br>
@@ -700,7 +700,7 @@ input[type=number]{-moz-appearance:textfield}
       <label>Tür</label>
       <select id="t-tur">
         <option value="tam">Tam Gün (7,5s)</option>
-        <option value="yarim">Yarım Gün (3,75s)</option>
+        <option value="yarim">Yarım Gün (4s)</option>
       </select>
     </div>
     <div class="modal-footer">
@@ -765,6 +765,39 @@ input[type=number]{-moz-appearance:textfield}
   </div>
 </div>
 
+<!-- WhatsApp Personel Seçim Modalı -->
+<div class="modal-overlay" id="modal-wp-secim">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-title">
+      <span>📲 Personel Seç — WhatsApp Gönder</span>
+      <span class="modal-close" onclick="modalKapat('modal-wp-secim')">✕</span>
+    </div>
+
+    <!-- Arama + Tümünü Seç -->
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <input id="wp-arama" placeholder="Ara…" oninput="wpAramaFiltrele()"
+        style="flex:1;padding:8px 12px;font-size:13px">
+      <button class="btn btn-ghost btn-sm" onclick="wpTumunuSec(true)">Tümü</button>
+      <button class="btn btn-ghost btn-sm" onclick="wpTumunuSec(false)">Temizle</button>
+    </div>
+
+    <!-- Personel listesi -->
+    <div id="wp-personel-liste" style="max-height:320px;overflow-y:auto;
+      border:1px solid var(--border);border-radius:8px;padding:4px 0"></div>
+
+    <!-- Seçili sayı -->
+    <div id="wp-secili-sayi" style="font-size:12px;color:var(--text3);
+      margin-top:8px;text-align:right"></div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="modalKapat('modal-wp-secim')">İptal</button>
+      <button class="btn btn-primary" id="wp-gonder-btn" onclick="wpGonderBaslat()">
+        Gönder
+      </button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -772,6 +805,7 @@ const API = 'http://localhost:5000/api';
 const AY_AD = ['','Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const GUN_AD = ['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
 const TAVAN = 7.5;
+const YARIM_GUN_BAZ = 4.0;  // Yarım gün tatil baz saati
 
 let personeller = [];
 let aktifPersonel = null;
@@ -1301,7 +1335,7 @@ async function loadTakvim() {
         // Boş → tatil simgesi göster ama saat yazma
         saatHtml='<span class="saat-lbl" style="color:var(--blue);font-size:9px">boş</span>';
       } else {
-        const baz=tatil.tur==='tam'?7.5:3.75;
+        const baz=tatil.tur==='tam'?7.5:YARIM_GUN_BAZ;
         const gosterilen=tatil.tur==='yarim'&&saat>=baz?`${saat}s→7.5`:saat>7.5?`${saat}s⚡`:`${saat}s`;
         saatHtml=`<span class="saat-lbl" style="color:var(--blue)">${gosterilen}</span>`;
       }
@@ -1371,6 +1405,8 @@ function gunTurDegis() {
 
   wrap.style.display='';
   if(tur==='pazar') ipucu.textContent='(Boş=sayılmaz, 0=7.5s, >7.5=fazla mesai)';
+  else if(tur==='tatil_tam') ipucu.textContent='(7.5s=tam gün, >7.5s fazla mesai)';
+  else if(tur==='tatil_yarim') ipucu.textContent='(0-4s=tam gün sayılır, >4s fazla mesai)';
   else ipucu.textContent='(Boş bırakılırsa kaydedilmez)';
 }
 
@@ -1434,7 +1470,7 @@ async function loadExcelGrid() {
           if(saat===0){totNormal+=TAVAN;}
           else{totNormal+=Math.min(saat,TAVAN);if(saat>TAVAN)totFazla+=saat-TAVAN;}
         } else if(tatil){
-          const baz=tatil.tur==='tam'?TAVAN:TAVAN/2;
+          const baz=tatil.tur==='tam'?TAVAN:YARIM_GUN_BAZ;
           inputCls+=tatil.tur==='tam'?' saved-tatil-tam':' saved-tatil-yarim';
           totNormal+=TAVAN;
           if(saat>baz) totFazla+=saat-baz;
@@ -1690,7 +1726,7 @@ function updateRowSummary(anyInput) {
       if(n===0) totNormal+=TAVAN;
       else{totNormal+=Math.min(n,TAVAN);if(n>TAVAN)totFazla+=n-TAVAN;}
     } else if(tatilTur){
-      const baz=tatilTur==='tam'?TAVAN:TAVAN/2;
+      const baz=tatilTur==='tam'?TAVAN:YARIM_GUN_BAZ;
       totNormal+=TAVAN;
       if(n>baz) totFazla+=n-baz;
     } else {
@@ -1960,23 +1996,23 @@ async function loadDashboard() {
   }
   const topToplam=rapor.reduce((a,r)=>a+r.toplam_maas,0);
   const topFazla=rapor.reduce((a,r)=>a+r.fazla_mesai_saat,0);
-  const topElden=rapor.reduce((a,r)=>a+r.elden_giden,0);
+  const topNormal=rapor.reduce((a,r)=>a+r.odenen_normal,0);
 
   document.getElementById('dash-stats').innerHTML=`
     <div class="stat"><div class="stat-label">Personel</div><div class="stat-val">${rapor.length}</div></div>
-    <div class="stat"><div class="stat-label">Toplam Maaş</div><div class="stat-val" style="font-size:16px;color:var(--accent)">${para(topToplam)}</div></div>
-    <div class="stat"><div class="stat-label">Toplam Fazla Mesai</div><div class="stat-val" style="color:var(--orange)">${topFazla.toFixed(1)}s</div></div>
-    <div class="stat"><div class="stat-label">Toplam Elden</div><div class="stat-val" style="color:var(--yellow)">${para(topElden)}</div></div>`;
+    <div class="stat"><div class="stat-label">Normal Saat</div><div class="stat-val" style="color:var(--green)">${topNormal.toFixed(1)}s</div></div>
+    <div class="stat"><div class="stat-label">Fazla Mesai</div><div class="stat-val" style="color:var(--orange)">${topFazla.toFixed(1)}s</div></div>
+    <div class="stat"><div class="stat-label">Toplam Maaş</div><div class="stat-val" style="font-size:16px;color:var(--accent)">${para(topToplam)}</div></div>`;
 
   document.getElementById('dash-tablo').innerHTML=`
     <table class="tbl"><thead><tr>
-      <th>Personel</th><th>Fazla Mesai</th><th>Toplam Maaş</th><th>Elden</th>
+      <th>Personel</th><th>Normal Saat</th><th>Fazla Mesai</th><th>Toplam Maaş</th>
     </tr></thead><tbody>
     ${rapor.map(r=>`<tr>
       <td><b>${r.personel.ad} ${r.personel.soyad}</b></td>
+      <td style="color:var(--green)">${saatStr(r.odenen_normal)}</td>
       <td style="color:${r.fazla_mesai_saat>0?'var(--orange)':'var(--text3)'}">${saatStr(r.fazla_mesai_saat)}</td>
       <td style="font-weight:700;color:var(--accent)">${para(r.toplam_maas)}</td>
-      <td style="color:var(--yellow)">${para(r.elden_giden)}</td>
     </tr>`).join('')}
     </tbody></table>`;
 }
@@ -2046,64 +2082,121 @@ async function raporWhatsappYonetici() {
 }
 
 async function raporWhatsappPersoneller() {
-  const yil = getYil(), ay = getAy(), ayAd = AY_AD[ay];
-
+  const yil = getYil(), ay = getAy();
   const tablo = await api(`/aylik_tablo?yil=${yil}&ay=${ay}`);
   if (!tablo || !tablo.tablo || !tablo.tablo.length) { toast('Rapor verisi yok', false); return; }
 
-  const GUN_KISA = ['Pt','Sa','Ça','Pe','Cu','Ct','Pz'];
-
-  // Telefonu olan personelleri filtrele
   const hedefler = tablo.tablo.filter(satir => {
     const p = personeller.find(x => x.id === satir.personel.id);
     return p && p.telefon;
   });
 
   if (!hedefler.length) {
-    toast('⚠️ Telefonu tanımlı personel yok. Personel listesinden telefon ekleyin.', false);
+    toast('Telefonu tanimli personel yok. Personel listesinden telefon ekleyin.', false);
     return;
   }
 
-  if (!confirm(`${hedefler.length} personele WhatsApp mesajı gönderilecek.\nHer biri için WhatsApp ayrı ayrı açılacak.\nDevam etmek istiyor musunuz?`)) return;
+  window._wpTablo = tablo;
 
+  const liste = document.getElementById('wp-personel-liste');
+  liste.innerHTML = hedefler.map(satir => {
+    const p = personeller.find(x => x.id === satir.personel.id);
+    return `<label style="display:flex;align-items:center;gap:10px;padding:9px 14px;
+      cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s"
+      onmouseover="this.style.background='var(--surface2)'"
+      onmouseout="this.style.background=''"
+      data-ad="${(p.ad+' '+p.soyad).toLowerCase()}">
+      <input type="checkbox" class="wp-chk" data-pid="${satir.personel.id}"
+        style="width:16px;height:16px;accent-color:var(--accent);flex-shrink:0" checked
+        onchange="wpSayiGuncelle()">
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:13px">${p.ad} ${p.soyad}</div>
+        <div style="font-size:11px;color:var(--text3)">${p.telefon}</div>
+      </div>
+      ${p.yonetici ? `<span style="font-size:10px;background:var(--accent-soft);color:var(--accent);border-radius:4px;padding:1px 6px;font-weight:700">YON</span>` : ''}
+    </label>`;
+  }).join('');
+
+  document.getElementById('wp-arama').value = '';
+  wpSayiGuncelle();
+  modalAc('modal-wp-secim');
+}
+
+function wpAramaFiltrele() {
+  const q = document.getElementById('wp-arama').value.toLowerCase();
+  document.querySelectorAll('#wp-personel-liste label').forEach(lbl => {
+    lbl.style.display = lbl.dataset.ad.includes(q) ? '' : 'none';
+  });
+}
+
+function wpTumunuSec(sec) {
+  document.querySelectorAll('.wp-chk').forEach(chk => {
+    const lbl = chk.closest('label');
+    if (lbl.style.display !== 'none') chk.checked = sec;
+  });
+  wpSayiGuncelle();
+}
+
+function wpSayiGuncelle() {
+  const toplam = document.querySelectorAll('.wp-chk').length;
+  const secili = document.querySelectorAll('.wp-chk:checked').length;
+  document.getElementById('wp-secili-sayi').textContent = `${secili} / ${toplam} personel secildi`;
+  const btn = document.getElementById('wp-gonder-btn');
+  btn.textContent = secili > 0 ? `Gonder (${secili})` : 'Gonder';
+  btn.disabled = secili === 0;
+}
+
+async function wpGonderBaslat() {
+  const seciliPidler = [...document.querySelectorAll('.wp-chk:checked')].map(c => +c.dataset.pid);
+  if (!seciliPidler.length) return;
+
+  modalKapat('modal-wp-secim');
+
+  const yil = getYil(), ay = getAy(), ayAd = AY_AD[ay];
+  const tablo = window._wpTablo;
+  const GUN_KISA = ['Pt','Sa','Ca','Pe','Cu','Ct','Pz'];
   let gonK = 0;
 
-  for (const satir of hedefler) {
-    const p_full = personeller.find(x => x.id === satir.personel.id);
-    if (!p_full?.telefon) continue;
+  for (const pid of seciliPidler) {
+    const satir = tablo.tablo.find(s => s.personel.id === pid);
+    const p_full = personeller.find(x => x.id === pid);
+    if (!satir || !p_full?.telefon) continue;
 
     const oz = satir.ozet;
-    let mesaj = `*PUANTAJ - ${ayAd.toUpperCase()} ${yil}*\n`;
-    mesaj += `Sayin *${satir.personel.ad} ${satir.personel.soyad}*\n\n`;
+    let mesaj = `*PUANTAJ - ${ayAd.toUpperCase()} ${yil}*
+`;
+    mesaj += `Sayin *${satir.personel.ad} ${satir.personel.soyad}*
 
-    // Gün gün — sadece girilmiş günler
+`;
+
     satir.gunler.forEach(g => {
       if (g.saat === null || g.saat === undefined) return;
       const d = new Date(g.tarih);
       const gunAd = GUN_KISA[d.getDay() === 0 ? 6 : d.getDay() - 1];
       const gunNo = String(g.gun).padStart(2, ' ');
-      let etiket = '';
-      if (g.pazar) etiket = ' (Pazar)';
-      else if (g.tatil) etiket = ' (Tatil)';
-      else if (g.saat > 7.5) etiket = ' (FM)';
-      mesaj += `${gunNo} ${gunAd}${etiket}: ${g.saat}s\n`;
+      const etiket = g.pazar ? ' (Pazar)' : g.tatil ? ' (Tatil)' : g.saat > 7.5 ? ' (FM)' : '';
+      mesaj += `${gunNo} ${gunAd}${etiket}: ${g.saat}s
+`;
     });
 
-    // Özet
     if (oz) {
       const toplamSaat = (oz.normal_saat + oz.yillik_izin_saat).toFixed(2);
-      mesaj += `-----------------\n`;
-      mesaj += `Toplam Calisma: *${toplamSaat} saat*\n`;
+      mesaj += `-----------------
+`;
+      mesaj += `Toplam Calisma: *${toplamSaat} saat*
+`;
       if (oz.fazla_mesai_saat > 0)
-        mesaj += `Fazla Mesai: *${oz.fazla_mesai_saat.toFixed(2)} saat*\n`;
+        mesaj += `Fazla Mesai: *${oz.fazla_mesai_saat.toFixed(2)} saat*
+`;
     }
 
-    mesaj += `\n_${new Date().toLocaleDateString('tr-TR')} tarihinde olusturulmustur._`;
+    mesaj += `
+_${new Date().toLocaleDateString('tr-TR')} tarihinde olusturulmustur._`;
 
     const r = await api('/whatsapp_link', 'POST', { telefon: p_full.telefon, mesaj });
     if (!r.ok) continue;
 
-    if (window.pywebview && window.pywebview.api && window.pywebview.api.whatsapp_ac) {
+    if (window.pywebview?.api?.whatsapp_ac) {
       await window.pywebview.api.whatsapp_ac(r.link);
     } else {
       window.open(r.link, '_blank');
@@ -2112,7 +2205,7 @@ async function raporWhatsappPersoneller() {
     await new Promise(res => setTimeout(res, 900));
   }
 
-  toast(`✅ ${gonK} personele WhatsApp mesajı gönderildi`);
+  toast(`${gonK} personele WhatsApp acildi`);
 }
 
 
@@ -2138,21 +2231,21 @@ async function loadRapor() {
     const p=satir.personel, oz=satir.ozet;
     rows+=`<tr><td style="text-align:left;font-weight:600;position:sticky;left:0;background:#e2e6f3;color:#2d3352">${p.ad} ${p.soyad}</td>`;
     satir.gunler.forEach(g=>{
-      let val='', style='color:#9098b8;background:#f8f9fc';
+      let val='', style='color:#000';
       if(g.saat!==null&&g.saat!==undefined){
-        val=g.saat;
-        if(g.pazar) style='color:#b85c00;background:#fdecd8';
-        else if(g.tatil) style='color:#1a7aaa;background:#d8edf8';
-        else if(g.saat>TAVAN) style='color:#b85c00;background:#fdecd8';
-        else style='color:#2d3352;background:#f8f9fc';
+        val=Number(g.saat).toFixed(1);
+        if(g.pazar) style='color:#000;background:#f4c89a';
+        else if(g.tatil) style='color:#000;background:'+(g.tatil.tur==='tam'?'#a6d9f5':'#99dfc0');
+        else if(g.saat>TAVAN) style='color:#000';
+        else style='color:#000';
       } else if(g.tatil){
-        val=g.tatil.tur==='tam'?'7.5':'3.75';
-        style='color:#1a7aaa;background:#d8edf8;opacity:.55';
+        val=g.tatil.tur==='tam'?'7.5':'4.0';
+        style='color:#000;background:'+(g.tatil.tur==='tam'?'#a6d9f5':'#99dfc0')+';opacity:.55';
       }
       rows+=`<td style="${style};font-family:'DM Mono',monospace;font-size:11px">${val}</td>`;
     });
-    rows+=`<td style="font-weight:700;color:#1a8a45;background:#f8f9fc">${oz?saatStr(oz.normal_saat+oz.yillik_izin_saat):'-'}</td>`;
-    rows+=`<td style="font-weight:700;background:#f8f9fc;color:${oz?.fazla_mesai_saat>0?'#b85c00':'#9098b8'}">${oz?saatStr(oz.fazla_mesai_saat):'-'}</td>`;
+    rows+=`<td style="font-weight:700;color:#000">${oz?saatStr(oz.normal_saat+oz.yillik_izin_saat):'-'}</td>`;
+    rows+=`<td style="font-weight:700;color:${oz?.fazla_mesai_saat>0?'#000':'#9098b8'}">${oz?saatStr(oz.fazla_mesai_saat):'-'}</td>`;
     rows+='</tr>';
   });
 

@@ -18,6 +18,7 @@ DB_PATH = 'puantaj.db'
 BACKUP_DIR = 'yedekler'
 AYLIK_STANDART_SAAT = 225.0
 TAVAN_SAAT = 7.5
+YARIM_GUN_BAZ = 4.0   # Yarım gün tatil baz saati
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -95,7 +96,7 @@ def get_maas(personel_id, yil, ay):
         r = c.execute('SELECT * FROM maas_gecmis WHERE personel_id=? ORDER BY yil DESC, COALESCE(ay,0) DESC LIMIT 1',
                       (personel_id,)).fetchone()
     conn.close()
-    return {'sabit_maas': r['sabit_maas'], 'asgari_ucret': r['asgari_ucret']} if r else {'sabit_maas': 0, 'asgari_ucret': 0}
+    return {'sabit_maas': r['sabit_maas']} if r else {'sabit_maas': 0}
 
 def log_yaz(conn, tablo, kayit_id, islem, eski=None, yeni=None):
     import json
@@ -117,21 +118,20 @@ def get_tatiller_dict(yil, ay):
     conn.close()
     return {r['tarih']: dict(r) for r in rows}
 
-def hesapla_maas(personel_id, yil, ay, global_asgari=None):
+def hesapla_maas(personel_id, yil, ay):
     """
     Hesaplama mantığı:
     - Saatlik ücret = sabit_maas / 225
     - Normal gün: girilen saat normal saate eklenir, 7.5 üstü fazla mesai
     - Pazar günü: 0 → 7.5 normal | >0 → o kadar normal (7.5 üstü fazla mesai)
-    - Tatil tam (7.5s baz): girilen saat → min(saat,7.5) normal + min(saat,7.5) fazla + max(0,saat-7.5) fazla
+    - Tatil tam (7.5s baz): girilen saat → 7.5 normal + max(0, saat-7.5) fazla mesai
       yani 7.5 yazılırsa: 7.5 normal + 7.5 fazla (toplamda 7.5*2 etkisi)
-    - Tatil yarım (3.75s baz): girilen saat → min(saat,3.75) normal + min(saat,3.75) fazla + max(0,saat-3.75) fazla
-      yani 3.75 yazılırsa: 3.75 normal + 3.75 fazla → toplam 7.5 saat etkisi
+    - Tatil yarım (4s baz): 4 saate kadar → 7.5 normal sayılır, 4 üstü fazla mesai
+      yani 4 yazılırsa: 7.5 normal | 5 yazılırsa: 7.5 normal + 1 fazla mesai
     - Yıllık izin: 7.5 normal sayılır
     - Rapor/ücretsiz izin: o gün sayılmaz
     - Toplam ücret = (normal_saat + yillik_izin_saat) * saatlik_ucret + fazla_mesai_saat * saatlik_ucret * 1.5
-    - Banka (asgari) tutarı: (global_asgari / 225) × ayın_standart_saati
-      ayın_standart_saati = o aydaki Pazartesi–Cumartesi gün sayısı × 7.5
+    - Bankaya giden: toplam_maas - avans (tüm maaş bankaya yatar)
     """
     conn = get_db()
     c = conn.cursor()
@@ -190,16 +190,16 @@ def hesapla_maas(personel_id, yil, ay, global_asgari=None):
                     normal_saat += TAVAN_SAAT
                     if saat > TAVAN_SAAT:
                         fazla_mesai_saat += saat - TAVAN_SAAT
-            else:  # yarım gün (baz=3.75)
+            else:  # yarım gün (baz=4s)
                 # Boş → ekleme yok
-                # 3.75 → 7.5 normal (3.75 yazılsa da tam gün sayılır)
-                # >3.75 → 7.5 normal + fazlası fazla mesai
+                # 0–4s → 7.5 normal (tam gün sayılır)
+                # >4s → 7.5 normal + (saat-4) fazla mesai
                 if saat is None:
                     pass
                 else:
                     normal_saat += TAVAN_SAAT  # her zaman 7.5 normal
-                    if saat > TAVAN_SAAT / 2:
-                        fazla_mesai_saat += saat - TAVAN_SAAT / 2
+                    if saat > YARIM_GUN_BAZ:
+                        fazla_mesai_saat += saat - YARIM_GUN_BAZ
             continue
 
         # Rapor / ücretsiz izin → sayılmaz
@@ -225,14 +225,8 @@ def hesapla_maas(personel_id, yil, ay, global_asgari=None):
     fazla_mesai_ucreti = fazla_mesai_saat * saatlik_ucret * 1.5
     toplam_maas = normal_ucret + fazla_mesai_ucreti
 
-    # Banka (asgari) tutarı: personelin fiili normal_saat × (asgari / 225)
-    if global_asgari is not None and global_asgari > 0:
-        bankaya_giden_tutar = round(normal_saat * (global_asgari / AYLIK_STANDART_SAAT), 2)
-    else:
-        bankaya_giden_tutar = maas_bilgi['asgari_ucret']
-
     avans_toplam = avanslar['toplam'] or 0
-    elden_giden = max(0, toplam_maas - bankaya_giden_tutar - avans_toplam)
+    bankaya_giden_tutar = round(max(0, toplam_maas - avans_toplam), 2)
 
     return {
         'personel': dict(p),
@@ -247,7 +241,6 @@ def hesapla_maas(personel_id, yil, ay, global_asgari=None):
         'toplam_maas': round(toplam_maas, 2),
         'avans': round(avans_toplam, 2),
         'bankaya_giden': bankaya_giden_tutar,
-        'elden_giden': round(elden_giden, 2),
     }
 
 # ── ROUTES ──────────────────────────────────────────────────
@@ -323,7 +316,7 @@ def personel_guncelle(pid):
                             VALUES (?,?,?,?,?)
                             ON CONFLICT(personel_id, yil, ay) DO UPDATE SET
                             sabit_maas=excluded.sabit_maas, asgari_ucret=excluded.asgari_ucret''',
-                         (pid, yil, ay, d['sabit_maas'], d.get('asgari_ucret', 0)))
+                         (pid, yil, ay, d['sabit_maas'], 0))
         conn.commit()
         conn.close()
         return jsonify({'ok': True})
@@ -395,7 +388,7 @@ def maas_ekle():
     try:
         conn.execute('''INSERT INTO maas_gecmis (personel_id, yil, ay, sabit_maas, asgari_ucret) VALUES (?,?,?,?,?)
                         ON CONFLICT(personel_id, yil, ay) DO UPDATE SET sabit_maas=excluded.sabit_maas, asgari_ucret=excluded.asgari_ucret''',
-                     (d['personel_id'], d['yil'], d.get('ay') or None, d['sabit_maas'], d.get('asgari_ucret', 0)))
+                     (d['personel_id'], d['yil'], d.get('ay') or None, d['sabit_maas'], 0))
         conn.commit()
         conn.close()
         return jsonify({'ok': True})
@@ -421,7 +414,7 @@ def maas_guncelle(maas_id):
     try:
         eski_r = conn.execute('SELECT * FROM maas_gecmis WHERE id=?', (maas_id,)).fetchone()
         eski = dict(eski_r) if eski_r else None
-        conn.execute('UPDATE maas_gecmis SET yil=?, ay=?, sabit_maas=?, asgari_ucret=0 WHERE id=?',
+        conn.execute('UPDATE maas_gecmis SET yil=?, ay=?, sabit_maas=? WHERE id=?',
                      (d['yil'], d.get('ay') or None, d['sabit_maas'], maas_id))
         log_yaz(conn, 'maas_gecmis', maas_id, 'UPDATE', eski=eski,
                 yeni={'yil': d['yil'], 'ay': d.get('ay'), 'sabit_maas': d['sabit_maas']})
@@ -743,13 +736,7 @@ def avans_sil(avans_id):
 def maas_hesapla(pid):
     yil = int(request.args.get('yil', datetime.now().year))
     ay = int(request.args.get('ay', datetime.now().month))
-    global_asgari = request.args.get('asgari', None)
-    if global_asgari is not None:
-        try:
-            global_asgari = float(global_asgari)
-        except ValueError:
-            global_asgari = None
-    sonuc = hesapla_maas(pid, yil, ay, global_asgari=global_asgari)
+    sonuc = hesapla_maas(pid, yil, ay)
     if sonuc:
         return jsonify(sonuc)
     return jsonify({'hata': 'Personel bulunamadı'}), 404
@@ -766,16 +753,10 @@ def tr_sort_personel(rows, ad_key='ad', soyad_key='soyad'):
 def rapor():
     yil = int(request.args.get('yil', datetime.now().year))
     ay = int(request.args.get('ay', datetime.now().month))
-    global_asgari = request.args.get('asgari', None)
-    if global_asgari is not None:
-        try:
-            global_asgari = float(global_asgari)
-        except ValueError:
-            global_asgari = None
     conn = get_db()
     personeller = conn.execute('SELECT id, ad, soyad FROM personel WHERE aktif=1').fetchall()
     conn.close()
-    sonuclar = [s for p in personeller if (s := hesapla_maas(p['id'], yil, ay, global_asgari=global_asgari))]
+    sonuclar = [s for p in personeller if (s := hesapla_maas(p['id'], yil, ay))]
     tr_alfabe = 'aAbBcCçÇdDeEfFgGğĞhHıIİijJkKlLmMnNoOöÖpPrRsSşŞtTuUüÜvVyYzZ'
     def tr_key(s):
         isim = (s['personel']['ad'] + ' ' + s['personel']['soyad']).lower()
@@ -849,13 +830,14 @@ def xlsx_export():
     # Renkler - Açık tema
     C_HEADER_BG  = "2563EB"   # Mavi header
     C_HEADER_FG  = "FFFFFF"
-    C_PAZ_BG     = "FEF3C7"   # Sarı tonu - pazar
-    C_PAZ_FG     = "B45309"
-    C_TATIL_BG   = "DBEAFE"   # Açık mavi - tatil
-    C_TATIL_FG   = "1D4ED8"
+    C_PAZ_BG     = "F4C89A"   # Turuncu - pazar
+    C_PAZ_FG     = "000000"   # Siyah yazı
+    C_TATIL_BG   = "A6D9F5"   # Mavi - tatil tam gün
+    C_TATIL_YARIM_BG = "99DFC0"  # Yeşil - tatil yarım gün
+    C_TATIL_FG   = "000000"   # Siyah yazı
     C_NORMAL_BG  = "FFFFFF"   # Beyaz - normal
-    C_NORMAL_FG  = "1E293B"
-    C_FAZLA_FG   = "EA580C"   # Turuncu - fazla mesai
+    C_NORMAL_FG  = "000000"   # Siyah yazı
+    C_FAZLA_FG   = "000000"   # Siyah yazı - fazla mesai
     C_TOPLAM_BG  = "EFF6FF"   # Çok açık mavi - toplam
     C_MAVI       = "2563EB"
     C_YESIL      = "16A34A"
@@ -903,11 +885,19 @@ def xlsx_export():
         tarih = f"{yil}-{ay:02d}-{d:02d}"
         gun_tarihi = date(yil, ay, d)
         is_pazar = gun_tarihi.weekday() == 6
-        is_tatil = tarih in tatiller
+        tatil = tatiller.get(tarih)
+        is_tatil = tatil is not None
         gun_kisa = gun_adlari[gun_tarihi.weekday()]
 
-        bg = C_PAZ_BG if is_pazar else (C_TATIL_BG if is_tatil else C_HEADER_BG)
-        fg = C_PAZ_FG if is_pazar else (C_TATIL_FG if is_tatil else C_HEADER_FG)
+        if is_pazar:
+            bg = C_PAZ_BG
+            fg = C_PAZ_FG
+        elif is_tatil:
+            bg = C_TATIL_BG if tatil['tur'] == 'tam' else C_TATIL_YARIM_BG
+            fg = C_TATIL_FG
+        else:
+            bg = C_HEADER_BG
+            fg = C_HEADER_FG
 
         c = ws.cell(row=HEADER_ROW, column=col, value=d)
         c.fill = PatternFill("solid", fgColor=bg)
@@ -980,8 +970,8 @@ def xlsx_export():
                     if saat > TAVAN_SAAT:
                         toplam_fazla += saat - TAVAN_SAAT
             elif tatil:
-                bg = C_TATIL_BG
-                baz = TAVAN_SAAT if tatil['tur'] == 'tam' else TAVAN_SAAT / 2
+                bg = C_TATIL_BG if tatil['tur'] == 'tam' else C_TATIL_YARIM_BG
+                baz = TAVAN_SAAT if tatil['tur'] == 'tam' else YARIM_GUN_BAZ
                 if saat is None:
                     # Boş → hiç sayılmaz, hücre boş göster
                     val, fg = "", C_TATIL_FG
@@ -992,7 +982,7 @@ def xlsx_export():
                     if saat > baz:
                         toplam_fazla += saat - baz
             else:
-                bg = C_NORMAL_BG
+                bg = None
                 if saat is None:
                     val, fg = "", C_NORMAL_FG
                 elif saat > TAVAN_SAAT:
@@ -1005,7 +995,8 @@ def xlsx_export():
                     toplam_normal += saat
 
             c = ws.cell(row=row, column=col, value=val if val != "" else None)
-            c.fill = PatternFill("solid", fgColor=bg)
+            if bg:
+                c.fill = PatternFill("solid", fgColor=bg)
             c.font = Font(name="Calibri", color=fg, size=9)
             c.alignment = Alignment(horizontal="center", vertical="center")
             thin = Side(style='thin', color="CBD5E1")
@@ -1251,7 +1242,7 @@ def whatsapp_link():
     else:
         numara = '90' + telefon.replace(' ', '').replace('-', '')
     import urllib.parse
-    encoded_msg = urllib.parse.quote(mesaj)
+    encoded_msg = urllib.parse.quote(mesaj, safe='')
     link = f"https://wa.me/{numara}?text={encoded_msg}"
     return jsonify({'ok': True, 'link': link, 'numara': numara})
 
@@ -1302,13 +1293,18 @@ if __name__ == '__main__':
                 return result if result else None
 
             def whatsapp_ac(self, url):
-                import subprocess
+                import subprocess, os
                 try:
-                    subprocess.Popen(['cmd', '/c', 'start', '', url],
-                                     shell=False, creationflags=0x08000000)
+                    # os.startfile Windows'ta uzun URL'leri doğru açar
+                    os.startfile(url)
                     return True
                 except Exception:
-                    return False
+                    try:
+                        subprocess.Popen(['rundll32', 'url.dll,FileProtocolHandler', url],
+                                         shell=False, creationflags=0x08000000)
+                        return True
+                    except Exception:
+                        return False
 
         api_obj = PuantajAPI()
         window = webview.create_window(
